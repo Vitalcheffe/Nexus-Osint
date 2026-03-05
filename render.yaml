@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: nexus-platform
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20.11.0
+      - key: PORT
+        value: 3000
+      # ── Clés optionnelles — ajouter dans Render Dashboard > Environment ──
+      # - key: ACLED_API_KEY
+      #   value: YOUR_KEY
+      # - key: ACLED_EMAIL
+      #   value: YOUR_EMAIL
+      # - key: NASA_FIRMS_MAP_KEY
+      #   value: YOUR_KEY
+      # - key: CLOUDFLARE_RADAR_TOKEN
+      #   value: YOUR_KEY
+      # - key: AISSTREAM_API_KEY
+      #   value: YOUR_KEY
+      # - key: TELEGRAM_API_ID
+      #   value: YOUR_ID
+      # - key: TELEGRAM_API_HASH
+      #   value: YOUR_HASH
+      # - key: SENTINEL_HUB_INSTANCE_ID
+      #   value: YOUR_ID
+      # - key: SENTINEL_HUB_CLIENT_ID
+      #   value: YOUR_ID
+      # - key: SENTINEL_HUB_CLIENT_SECRET
+      #   value: YOUR_SECRET
+      # - key: FRED_API_KEY
+      #   value: YOUR_KEY
