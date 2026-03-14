@@ -81,7 +81,7 @@ None of these are decorative. They're wired into the scoring pipeline and affect
 ## Running it
 
 ```bash
-git clone https://github.com/Vitalcheffe/nexus-platform
+git clone https://github.com/Vitalcheffe/nexus-osint
 cd nexus-platform
 npm install
 npm run dev
