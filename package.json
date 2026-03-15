@@ -6,8 +6,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "NODE_OPTIONS='--max-old-space-size=4096' next build --webpack",
     "start": "next start"
   },
   "dependencies": {
@@ -32,6 +32,6 @@
     "copy-webpack-plugin": "^14.0.0",
     "typescript": "^5"
   },
-  "description": "NEXUS — Open-source geospatial OSINT intelligence platform. Real-time 3D globe with 35+ data sources, 6-dimension correlation engine, and 92 Telegram OSINT channels.",
+  "description": "NEXUS — Open-source geospatial OSINT intelligence platform.",
   "license": "MPL-2.0"
 }
