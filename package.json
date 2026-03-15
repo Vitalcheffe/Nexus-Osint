@@ -7,7 +7,7 @@
     "predev": "node scripts/copy-cesium.mjs",
     "copy-cesium": "node scripts/copy-cesium.mjs",
     "prebuild": "node scripts/copy-cesium.mjs",
-    "build": "rm -rf .next && next build --webpack --no-lint",
+    "build": "next build",
     "start": "next start"
   },
   "dependencies": {
@@ -28,7 +28,6 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/uuid": "^11.0.0",
     "@types/ws": "^8.18.1",
     "copy-webpack-plugin": "^14.0.0",
     "typescript": "^5"
