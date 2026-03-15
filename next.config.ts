@@ -6,17 +6,20 @@ import CopyPlugin from "copy-webpack-plugin";
 const cesiumSource = path.resolve(__dirname, "node_modules/cesium/Build/Cesium");
 
 const nextConfig: NextConfig = {
-  // --- LES DEUX LIGNES À AJOUTER ICI ---
+  // 1. On change le dossier de sortie pour éviter le bug de cache Vercel
+  distDir: 'build', 
+  cleanDistDir: true, // Force le nettoyage à chaque build
+
+  // 2. On ignore les erreurs bloquantes pour le déploiement rapide
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
-  // -------------------------------------
   
   env: {
     CESIUM_BASE_URL: "/cesium",
   },
+  
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // Ta config Cesium actuelle reste identique en dessous...
       if (process.env.NODE_ENV === "production" || !isServer) {
         if (process.env.NODE_ENV === "production") {
           config.plugins?.push(
