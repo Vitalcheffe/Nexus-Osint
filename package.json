@@ -3,10 +3,7 @@
   "version": "16.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "predev": "node scripts/copy-cesium.mjs",
-    "copy-cesium": "node scripts/copy-cesium.mjs",
-    "prebuild": "node scripts/copy-cesium.mjs",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start"
   },
