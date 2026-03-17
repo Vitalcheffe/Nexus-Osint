@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
+    "@vercel/analytics": "^2.0.1",
     "cesium": "^1.139.0",
     "jsdom": "^28.1.0",
     "lucide-react": "^0.576.0",
