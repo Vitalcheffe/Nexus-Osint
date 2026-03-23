@@ -244,18 +244,13 @@ export default function GlobeView() {
         viewer.scene.msaaSamples = msaaSamples;
         viewer.scene.postProcessStages.fxaa.enabled = enableFxaa;
 
-        // Camera controller — smooth zoom, no artificial limits
-        const ctrl = viewer.scene.screenSpaceCameraController;
+        // Camera controller -- smooth zoom, no artificial limits
+    const ctrl = viewer.scene.screenSpaceCameraController;
         ctrl.minimumZoomDistance = 200;
         ctrl.maximumZoomDistance = 25_000_000;
-        ctrl.zoomEventTypes = [
-            (window as any).Cesium?.CameraEventType?.WHEEL,
-            (window as any).Cesium?.CameraEventType?.PINCH,
-        ].filter(Boolean);
-        ctrl.tiltEventTypes = [
-            (window as any).Cesium?.CameraEventType?.RIGHT_DRAG,
-            (window as any).Cesium?.CameraEventType?.PINCH,
-        ].filter(Boolean);
+        // Use numeric values directly: WHEEL=3, PINCH=4, RIGHT_DRAG=1
+        ctrl.zoomEventTypes = [3, 4];
+        ctrl.tiltEventTypes = [1, 4];
         ctrl.enableCollisionDetection = true;
 
         // Initialize Google Photorealistic 3D Tiles once

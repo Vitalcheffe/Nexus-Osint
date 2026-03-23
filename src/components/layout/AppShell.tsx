@@ -69,10 +69,13 @@ export function AppShell() {
             await pluginManager.init();
 
             for (const plugin of pluginRegistry.getAll()) {
-                await pluginManager.registerPlugin(plugin);
-                initLayer(plugin.id);
+                  await pluginManager.registerPlugin(plugin);
+                  initLayer(plugin.id);
+                  // Enable plugins by default so data starts loading
+                  pluginManager.enablePlugin(plugin.id);
+                  useStore.getState().setLayerEnabled(plugin.id, true);
             }
-        };
+      };
 
         startPlatform();
 
