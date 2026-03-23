@@ -1,17 +1,3 @@
-/**
- * NEXUS Globe Layer
- * ─────────────────────────────────────────────────────────────
- * Renders NEXUS intelligence events directly onto the CesiumJS globe:
- * - Pulsing concentric rings for active alerts (level-colored)
- * - GPS jamming zone ellipses (orange translucent)
- * - Satellite ground-track polylines
- * - ADS-B void zones (dark red)
- * - Signal epicentre labels
- *
- * Uses Cesium Entity API for declarative management.
- * All entities are prefixed `__nexus_` for easy cleanup.
- */
-
 import { useEffect, useRef } from "react";
 import {
   Color,
@@ -258,12 +244,12 @@ function addDamageZone(
   viewer: CesiumViewer,
   zone: {
     id: string; name: string; lat: number; lng: number; radiusKm: number;
-    destroyedStructures: number; totalAffected: number; percentageAffected: number;
-    attackType: string; attributedActor: string; weaponSystem: string[];
-    confidence: number; verifiedBy: string[];
+    destroyedStructures: number; totalAffected: number; percentageAffected?: number;
+    attackType?: string; attributedActor?: string; weaponSystem?: string[];
+    confidence: number; verifiedBy?: string[];
   }
 ): string[] {
-  const color = ATTACK_COLORS[zone.attackType] || "#ef4444";
+  const color = ATTACK_COLORS[zone.attackType ?? "UNKNOWN"] || "#ef4444";
   const cesiumColor = Color.fromCssColorString(color);
   const center = Cartesian3.fromDegrees(zone.lng, zone.lat, 0);
   const radiusM = zone.radiusKm * 1000;
@@ -271,7 +257,7 @@ function addDamageZone(
   const t = () => performance.now() / 1000;
 
   // ── Zone principale: ellipse animée avec intensité selon dommages
-  const damageIntensity = Math.min(1.0, zone.percentageAffected / 100);
+  const damageIntensity = Math.min(1.0, (zone.percentageAffected ?? 50) / 100);
 
   viewer.entities.add({
     id: `__nexus_dmg_ellipse_${zone.id}`,
@@ -290,7 +276,7 @@ function addDamageZone(
   });
   ids.push(`__nexus_dmg_ellipse_${zone.id}`);
 
-  // ── Anneaux de dommages (1=modéré, 2=grave, 3=détruit — concentrique)
+  // ── Anneaux de dommages (1=modéré, 2=grave, 3=détruit -- concentrique)
   const rings = [
     { scale: 1.0, alpha: 0.04, label: "DÉTRUIT" },
     { scale: 0.65, alpha: 0.08, label: "GRAVE" },
@@ -320,7 +306,7 @@ function addDamageZone(
     id: `__nexus_dmg_label_${zone.id}`,
     position: Cartesian3.fromDegrees(zone.lng, zone.lat, 15000),
     label: {
-      text: `${attackIcons[zone.attackType] || "●"} ${zone.name}\n${zone.destroyedStructures.toLocaleString()} détruits · ${zone.confidence}% conf`,
+      text: `${attackIcons[zone.attackType ?? "UNKNOWN"] || "●"} ${zone.name}\n${zone.destroyedStructures?.toLocaleString() ?? "?"} détruits · ${zone.confidence}% conf`,
       font: "bold 11px JetBrains Mono",
       fillColor: Color.fromCssColorString(color),
       outlineColor: Color.BLACK,
@@ -383,9 +369,16 @@ export function useNexusGlobeLayer(viewer: CesiumViewer | null, ready: boolean) 
     }
 
     // ── Zones de dommages (UNOSAT/ACLED)
-    for (const zone of DAMAGE_ZONES) {
-      const ids = addDamageZone(viewer, zone);
-      entityIdsRef.current.push(...ids);
+    // DAMAGE_ZONES is now dynamically populated from real APIs
+    // When data is available from UNOSAT/Sentinel Hub, it will render here
+    if (DAMAGE_ZONES && DAMAGE_ZONES.length > 0) {
+      for (const zone of DAMAGE_ZONES) {
+        // Only render if we have valid coordinates
+        if (zone.lat !== 0 && zone.lng !== 0) {
+          const ids = addDamageZone(viewer, zone);
+          entityIdsRef.current.push(...ids);
+        }
+      }
     }
 
     // Force scene to keep rendering (for callback properties)

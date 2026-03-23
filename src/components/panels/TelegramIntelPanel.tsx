@@ -6,18 +6,18 @@
  * 
  * SCIENCE BEHIND THIS:
  * 
- * MIT Media Lab (Vosoughi, Roy, Aral — Science 2018):
+ * MIT Media Lab (Vosoughi, Roy, Aral -- Science 2018):
  * → Fausses nouvelles: 6x plus rapides, 70% plus de portée
  * → La NOUVEAUTÉ et SURPRISE = vecteurs de propagation
  * → Implication NEXUS: un message qui se propage vite DOIT être
  *   soumis à vérification croisée, pas accepté automatiquement
  * 
  * RAND Corporation (Disinformation Tools, 2019):
- * → "Firehose of Falsehood" — quantité > qualité en war-info
+ * → "Firehose of Falsehood" -- quantité > qualité en war-info
  * → Biais de confirmation = erreur systématique n°1 en OSINT
  * → Solution: afficher TOUS les biais, ne rien cacher
  * 
- * Network Analysis (Watts-Strogatz — Small World Model):
+ * Network Analysis (Watts-Strogatz -- Small World Model):
  * → Les "sentinel nodes" (premiers émetteurs) ont une valeur 
  *   informationnelle disproportionnée dans les cascades
  * → NEXUS identifie ces nœuds sentinelles automatiquement
@@ -373,16 +373,16 @@ function MessageCard({ msg, onFlyTo }: { msg: TelegramMsg; onFlyTo?: (zone: stri
                 background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
               }}>
                 <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 700, marginBottom: 3 }}>
-                  {ATTACK_ICONS[dz.attackType]} ZONE DOMMAGES LIÉE: {dz.name}
+                  {ATTACK_ICONS[dz.attackType ?? "UNKNOWN"] ?? "?"} ZONE DOMMAGES LIÉE: {dz.name}
                 </div>
                 <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)" }}>
-                  {dz.destroyedStructures.toLocaleString()} structures détruites · 
-                  Par: {dz.attributedActor} · 
+                  {dz.destroyedStructures?.toLocaleString() ?? "?"} structures détruites · 
+                  Par: {dz.attributedActor ?? "Inconnu"} · 
                   Conf: {dz.confidence}% · 
-                  Vérifié: {dz.verifiedBy.join(", ")}
+                  Vérifié: {(dz.verifiedBy ?? []).join(", ")}
                 </div>
                 <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>
-                  Armements: {dz.weaponSystem.join(" · ")}
+                  Armements: {(dz.weaponSystem ?? []).join(" · ")}
                 </div>
               </div>
             ) : null;
@@ -423,7 +423,7 @@ function ChannelCard({ channel, liveStats }: { channel: TelegramChannel; liveSta
   const score = channel.credibilityScore;
   const scoreColor = score >= 80 ? "#22d3ee" : score >= 65 ? "#a78bfa" : score >= 50 ? "#f59e0b" : "#ef4444";
 
-  // CIB detection — Harvard Shorenstein Center, Donovan 2024
+  // CIB detection -- Harvard Shorenstein Center, Donovan 2024
   // Computed from channel metadata: handle, posting rate, repost ratio, warning flags, amplification network
   const cib: CIBScore = detectCIB(
     channel.handle,
@@ -434,7 +434,7 @@ function ChannelCard({ channel, liveStats }: { channel: TelegramChannel; liveSta
     channel.warningFlags,
   );
 
-  // LDA semantic topic scoring — Mueller & Rauh, APSR 2018
+  // LDA semantic topic scoring -- Mueller & Rauh, APSR 2018
   // Specialties + affiliations describe the channel's content domain
   const lda = scoreLDA(
     channel.specialties.join(" ") + " " + channel.knownAffiliations.join(" "),
@@ -495,7 +495,7 @@ function ChannelCard({ channel, liveStats }: { channel: TelegramChannel; liveSta
         </span>
       </div>
 
-      {/* CIB signatures — only shown when suspicious */}
+      {/* CIB signatures -- only shown when suspicious */}
       {cib.signatures.length > 0 && (cibDanger || cibSuspect) && (
         <div style={{ display: "flex", gap: 3, flexWrap: "wrap" as const, marginTop: 3 }}>
           {cib.signatures.slice(0, 3).map(sig => (
@@ -570,13 +570,13 @@ function DamageZoneCard({ zone, onFlyTo }: { zone: typeof DAMAGE_ZONES[0]; onFly
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 16 }}>{ATTACK_ICONS[zone.attackType]}</span>
+        <span style={{ fontSize: 16 }}>{ATTACK_ICONS[zone.attackType ?? "UNKNOWN"] ?? "?"}</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.85)" }}>
             {zone.name}
           </div>
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", fontFamily: "JetBrains Mono" }}>
-            {zone.attributedActor}
+            {zone.attributedActor ?? "Inconnu"}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -590,16 +590,16 @@ function DamageZoneCard({ zone, onFlyTo }: { zone: typeof DAMAGE_ZONES[0]; onFly
       {/* Stats dommages */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 4, marginBottom: 6 }}>
         {[
-          { label: "DÉTRUIT", value: zone.destroyedStructures, color: "#ef4444" },
-          { label: "GRAVE",   value: zone.severelyDamaged, color: "#f97316" },
-          { label: "MODÉRÉ",  value: zone.moderatelyDamaged, color: "#f59e0b" },
-          { label: "TOTAL",   value: zone.totalAffected, color: "#94a3b8" },
+          { label: "DÉTRUIT", value: zone.destroyedStructures ?? 0, color: "#ef4444" },
+          { label: "GRAVE",   value: zone.severelyDamaged ?? 0, color: "#f97316" },
+          { label: "MODÉRÉ",  value: zone.moderatelyDamaged ?? 0, color: "#f59e0b" },
+          { label: "TOTAL",   value: zone.totalAffected ?? 0, color: "#94a3b8" },
         ].map(item => (
           <div key={item.label} style={{
             background: "rgba(0,0,0,0.2)", borderRadius: 4, padding: "4px 6px", textAlign: "center",
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: item.color, fontFamily: "JetBrains Mono" }}>
-              {item.value.toLocaleString()}
+              {(item.value ?? 0).toLocaleString()}
             </div>
             <div style={{ fontSize: 7, color: "rgba(255,255,255,0.3)", fontFamily: "JetBrains Mono" }}>
               {item.label}
@@ -610,7 +610,7 @@ function DamageZoneCard({ zone, onFlyTo }: { zone: typeof DAMAGE_ZONES[0]; onFly
       
       {/* Armements */}
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {zone.weaponSystem.map(w => (
+        {(zone.weaponSystem ?? []).map(w => (
           <span key={w} style={{
             fontSize: 8, padding: "1px 5px", borderRadius: 2, fontFamily: "JetBrains Mono",
             background: "rgba(239,68,68,0.1)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.2)",
@@ -627,13 +627,13 @@ function DamageZoneCard({ zone, onFlyTo }: { zone: typeof DAMAGE_ZONES[0]; onFly
           border: "1px solid rgba(255,255,255,0.05)",
         }}>
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", fontFamily: "JetBrains Mono", marginBottom: 4 }}>
-            AFFECTÉS: {zone.percentageAffected}% de la zone · 
+            AFFECTÉS: {zone.percentageAffected ?? 0}% de la zone · 
             RAYON: {zone.radiusKm}km · 
-            VÉRIFIÉ PAR: {zone.verifiedBy.join(", ")}
+            VÉRIFIÉ PAR: {(zone.verifiedBy ?? []).join(", ")}
           </div>
           <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "JetBrains Mono", marginBottom: 6 }}>
-            SOURCES: {zone.sources.join(", ")} · 
-            MAJ: {new Date(zone.lastUpdatedDate).toLocaleDateString("fr")}
+            SOURCES: {(zone.sources ?? []).join(", ")} · 
+            MAJ: {new Date(zone.lastUpdatedDate ?? zone.lastUpdate ?? Date.now()).toLocaleDateString("fr")}
           </div>
           
           <div style={{ display: "flex", gap: 6 }}>
@@ -1007,7 +1007,7 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               border: "1px solid rgba(255,255,255,0.06)",
             }}>
               <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "JetBrains Mono", marginBottom: 5 }}>
-                BIAIS ÉDITORIAUX — TOUS SONT QUANTIFIÉS, AUCUN N'EST CACHÉ
+                BIAIS ÉDITORIAUX -- TOUS SONT QUANTIFIÉS, AUCUN N'EST CACHÉ
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {Object.entries(BIAS_COLORS).map(([bias, color]) => (
@@ -1163,7 +1163,7 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.15)",
             }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#22d3ee", marginBottom: 6 }}>
-                🧬 MIT Media Lab — Vosoughi, Roy & Aral (Science, 2018)
+                🧬 MIT Media Lab -- Vosoughi, Roy & Aral (Science, 2018)
               </div>
               <p style={{ margin: 0 }}>
                 Analyse de 126 000 cascades d'information sur Twitter (2006-2017). 
@@ -1173,7 +1173,7 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               </p>
               <p style={{ margin: "6px 0 0" }}>
                 <strong style={{ color: "#22d3ee" }}>Implication NEXUS:</strong> La vitesse de propagation 
-                d'un message N'EST PAS un indicateur de vérité — c'est souvent l'inverse. 
+                d'un message N'EST PAS un indicateur de vérité -- c'est souvent l'inverse. 
                 NEXUS pénalise les messages à haute vélocité et récompense la corroboration croisée.
               </p>
             </div>
@@ -1183,12 +1183,12 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)",
             }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", marginBottom: 6 }}>
-                🕸️ Small World Networks — Watts & Strogatz (Nature, 1998)
+                🕸️ Small World Networks -- Watts & Strogatz (Nature, 1998)
               </div>
               <p style={{ margin: 0 }}>
                 Les réseaux d'information ont une structure "petit monde": quelques nœuds hautement 
                 connectés contrôlent la propagation. NEXUS identifie les 
-                <strong style={{ color: "#a78bfa" }}> "nœuds sentinelles"</strong> — les canaux 
+                <strong style={{ color: "#a78bfa" }}> "nœuds sentinelles"</strong> -- les canaux 
                 qui publient en premier sur les événements majeurs.
               </p>
               <p style={{ margin: "6px 0 0" }}>
@@ -1202,7 +1202,7 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)",
             }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#ef4444", marginBottom: 6 }}>
-                🎯 Similarité Jaccard — Détection des reposts
+                🎯 Similarité Jaccard -- Détection des reposts
               </div>
               <p style={{ margin: 0 }}>
                 NEXUS calcule la similarité Jaccard entre chaque nouveau message et les 500 derniers. 
@@ -1244,7 +1244,7 @@ export default function TelegramIntelPanel({ onFlyToZone }: {
               <p style={{ margin: 0 }}>
                 La doctrine russe de la désinformation (et ses équivalents) repose sur le 
                 <strong style={{ color: "#fbbf24" }}> volume plutôt que la qualité</strong>. 
-                L'objectif n'est pas de convaincre — c'est de saturer l'espace informationnel 
+                L'objectif n'est pas de convaincre -- c'est de saturer l'espace informationnel 
                 pour créer le doute.
               </p>
               <p style={{ margin: "6px 0 0" }}>
