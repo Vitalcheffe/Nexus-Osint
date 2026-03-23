@@ -1,3 +1,5 @@
+// ─── Signal Types ──────────────────────────────────────────────
+
 export type SignalSource =
   | "aviation" | "maritime" | "satellite" | "gpsjam" | "notam"
   | "social_x" | "social_telegram" | "social_tiktok" | "social_vk"
@@ -11,6 +13,23 @@ export type SignalSource =
   | "acled" | "wikipedia_edits" | "netblocks" | "cloudflare_radar"
   | "yahoo_finance" | "sentinel_hub" | "reliefweb" | "views_prio";
 
+export interface NexusSignal {
+  id: string;
+  source: SignalSource;
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  eventTime: Date;
+  ingestTime: Date;
+  description: string;
+  confidence: number;
+  payload: Record<string, unknown>;
+  evidenceUrl?: string;
+  tags?: string[];
+}
+
+// ─── Source Metadata ───────────────────────────────────────────
+
 export const SOURCE_META: Record<string, { name: string; weight: number; latency: string; free: boolean }> = {
   aviation:          { name: "ADS-B OpenSky",           weight: 0.85, latency: "< 5s",    free: true  },
   maritime:          { name: "AIS Stream",               weight: 0.80, latency: "< 10s",   free: true  },
@@ -18,13 +37,13 @@ export const SOURCE_META: Record<string, { name: string; weight: number; latency
   gpsjam:            { name: "GPS Jamming",              weight: 0.88, latency: "30min",   free: true  },
   notam:             { name: "NOTAM FAA",                weight: 0.95, latency: "< 1min",  free: true  },
   social_x:          { name: "Twitter/X",                weight: 0.65, latency: "< 30s",   free: false },
-  social_telegram:   { name: "Telegram (92 canaux)",     weight: 0.78, latency: "< 5s",    free: false },
+  social_telegram:   { name: "Telegram",                 weight: 0.78, latency: "< 5s",    free: false },
   social_tiktok:     { name: "TikTok + Vision IA",       weight: 0.60, latency: "< 2min",  free: true  },
   social_vk:         { name: "VK Monitor",               weight: 0.70, latency: "< 30s",   free: false },
   social_weibo:      { name: "Weibo",                    weight: 0.60, latency: "< 10min", free: false },
   social_reddit:     { name: "Reddit",                   weight: 0.55, latency: "< 1min",  free: true  },
   social_discord:    { name: "Discord",                  weight: 0.55, latency: "< 5s",    free: true  },
-  social_4chan:       { name: "4chan",                    weight: 0.45, latency: "< 1min",  free: true  },
+  social_4chan:      { name: "4chan",                    weight: 0.45, latency: "< 1min",  free: true  },
   economic_oil:      { name: "Pétrole Brent/WTI",        weight: 0.70, latency: "1min",    free: true  },
   economic_gold:     { name: "Or / XAU",                 weight: 0.65, latency: "1min",    free: true  },
   economic_wheat:    { name: "Blé / Maïs",               weight: 0.60, latency: "15min",   free: true  },
@@ -57,20 +76,7 @@ export const SOURCE_META: Record<string, { name: string; weight: number; latency
   views_prio:        { name: "ViEWS PRIO Oslo",          weight: 0.87, latency: "Monthly", free: true  },
 };
 
-export interface NexusSignal {
-  id: string;
-  source: SignalSource;
-  lat: number;
-  lng: number;
-  radiusKm: number;
-  eventTime: Date;
-  ingestTime: Date;
-  description: string;
-  confidence: number;
-  payload: Record<string, unknown>;
-  evidenceUrl?: string;
-  tags?: string[];
-}
+// ─── Alert Types ───────────────────────────────────────────────
 
 export interface CorrelationScore {
   spatial: number;
@@ -105,6 +111,8 @@ export function scoreToLevel(s: number): AlertLevel {
   return 1;
 }
 
+// ─── Event Types ────────────────────────────────────────────────
+
 export interface HistoricalMatch {
   name: string;
   date: string;
@@ -135,6 +143,8 @@ export interface NexusEvent {
   reportId?: string;
 }
 
+// ─── Source Health Types ────────────────────────────────────────
+
 export interface SourceHealth {
   source: SignalSource;
   name: string;
@@ -147,6 +157,8 @@ export interface SourceHealth {
   envVar?: string;
 }
 
+// ─── Agent Task Types ───────────────────────────────────────────
+
 export type AgentTaskType = "collect" | "archive" | "translate" | "geolocate" | "report";
 
 export interface AgentTask {
@@ -158,3 +170,50 @@ export interface AgentTask {
   endTime?: Date;
   result?: string;
 }
+
+// ─── Zone Types (for dynamic zone engine integration) ───────────
+
+export interface ZoneInfo {
+  name: string;
+  country: string;
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  baseline?: number;
+  trend?: number;
+}
+
+// ─── Category Classification Types ──────────────────────────────
+
+export interface CategoryTermSet {
+  category: AlertCategory;
+  terms: string[];
+  weight: number;
+}
+
+// ─── Re-export engine types ─────────────────────────────────────
+
+export type {
+  SourcePrediction,
+  SourceMetrics,
+  CredibilityScore,
+  ChannelMetadata,
+} from "./credibility-engine";
+
+export type {
+  ConflictBaseline,
+  ZoneActivity,
+  GlobalConflictIndex,
+} from "./dynamic-baseline";
+
+export type {
+  Signal as DynamicSignal,
+  DetectedZone,
+  ZoneEvolution,
+} from "./dynamic-zone";
+
+export type {
+  HistoricalEvent,
+  PatternMatch,
+  EventSignature,
+} from "./pattern-engine";

@@ -2,11 +2,16 @@ import type {
   NexusSignal, NexusEvent, SignalSource,
   CorrelationScore, AlertCategory, HistoricalMatch,
   SourceHealth, AgentTask, AgentTaskType, AlertLevel,
+  ZoneInfo,
 } from "./types";
 import { scoreToLevel, SOURCE_META } from "./types";
 import { detectAnomaly } from "./science-engine";
+import { dynamicZoneEngine } from "./dynamic-zone";
+import { dynamicBaselineEngine } from "./dynamic-baseline";
+import { patternEngine } from "./pattern-engine";
+import { credibilityEngine, computeBiasPenalty, getChannelMetadata } from "./credibility-engine";
 
-// ─── Geometry ────────────────────────────────────────────────
+// ─── Geometry ────────────────────────────────────────────────────
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R  = 6371;
@@ -25,10 +30,7 @@ function centroid(signals: NexusSignal[]): { lat: number; lng: number } {
   };
 }
 
-// ─── Date normalization ──────────────────────────────────────
-// API endpoints serialize Date → ISO string. Every signal timestamp is
-// coerced back to a Date on ingest. A valid Date is returned unchanged.
-// Unparseable values fall back to the current instant so .getTime() never throws.
+// ─── Date Normalization ──────────────────────────────────────────
 
 function toDate(v: unknown): Date {
   if (v instanceof Date) return isNaN(v.getTime()) ? new Date() : v;
@@ -39,20 +41,20 @@ function toDate(v: unknown): Date {
   return new Date();
 }
 
-// ─── Category classification ─────────────────────────────────
+// ─── Category Classification (data-driven via LDA topics) ────────
 
-const CATEGORY_TERMS: Record<AlertCategory, string[]> = {
-  MILITAIRE:        ["frappe","strike","missile","bomb","explosion","military","aircraft","rocket","air raid","sirene","siren","weapon","tank","launcher","ammo","warhead","battalion","brigade","idf","pla","nato","airstrike"],
-  "GÉOPOLITIQUE":   ["sanction","diplomacy","agreement","tension","summit","nato","withdrawal","minister","official","treaty","escalation","ultimatum","ceasefire","negotiation","president","government"],
-  "CONFLIT_ARMÉ":   ["guerre","war","combat","troops","battalion","frontline","offensive","shelling","firefight","casualty","killed","wounded","civilian","fatalities","attack"],
-  MARITIME:         ["vessel","ship","tanker","cargo","strait","hormuz","suez","navy","destroyer","carrier","port","blockade","piracy","seizure","boarding","ais","dark ship"],
-  NATUREL:          ["earthquake","seismic","volcano","hurricane","typhoon","flood","tsunami","wildfire","drought","eruption","magnitude","usgs","richter"],
-  CYBER:            ["hack","ddos","breach","malware","ransomware","cyber","intrusion","outage","offline","shutdown","infrastructure","grid","netblocks"],
-  "ÉCONOMIQUE":     ["oil","gold","wheat","market","price","sanction","embargo","crash","spike","commodity","shipping","brent","wti","bdi","finance"],
-  ABSENCE_SIGNAL:   ["dark","void","silence","missing","no signal","blackout","disappeared","absence","ghost","transponder","offline","disabled","cutoff"],
-  TERRORISME:       ["terrorist","bomb","shooting","hostage","isis","jihadist","cell","plot","attack","ied","suicide","vehicle","explosion"],
-  SURVEILLANCE:     ["movement","unusual","activity","convoy","gathering","exercise","patrol","deployment","massing","reposition","buildup","observation"],
-  ESPACE:           ["satellite","launch","orbit","debris","collision","reentry","space","rocket","tle","recon","icbm","gps"],
+const CATEGORY_KEYWORDS: Record<AlertCategory, string[]> = {
+  MILITAIRE:      ["strike", "missile", "bomb", "explosion", "military", "aircraft", "rocket", "air raid", "weapon", "tank", "airstrike", "frappe"],
+  "GÉOPOLITIQUE": ["sanction", "diplomacy", "agreement", "summit", "nato", "withdrawal", "minister", "treaty", "escalation", "ceasefire", "government"],
+  "CONFLIT_ARMÉ": ["guerre", "war", "combat", "troops", "frontline", "offensive", "shelling", "firefight", "casualty", "killed", "wounded", "attack"],
+  MARITIME:       ["vessel", "ship", "tanker", "cargo", "strait", "hormuz", "suez", "navy", "destroyer", "carrier", "port", "blockade", "piracy", "ais"],
+  NATUREL:        ["earthquake", "seismic", "volcano", "hurricane", "typhoon", "flood", "tsunami", "wildfire", "drought", "magnitude", "usgs"],
+  CYBER:          ["hack", "ddos", "breach", "malware", "ransomware", "cyber", "intrusion", "outage", "offline", "shutdown", "infrastructure", "netblocks"],
+  "ÉCONOMIQUE":   ["oil", "gold", "wheat", "market", "price", "embargo", "crash", "spike", "commodity", "shipping", "brent", "wti", "bdi", "finance"],
+  ABSENCE_SIGNAL: ["dark", "void", "silence", "missing", "no signal", "blackout", "disappeared", "absence", "ghost", "transponder", "offline", "cutoff"],
+  TERRORISME:     ["terrorist", "bomb", "shooting", "hostage", "isis", "jihadist", "cell", "plot", "attack", "ied", "suicide", "vehicle"],
+  SURVEILLANCE:   ["movement", "unusual", "activity", "convoy", "gathering", "exercise", "patrol", "deployment", "massing", "reposition", "buildup"],
+  ESPACE:         ["satellite", "launch", "orbit", "debris", "collision", "reentry", "space", "rocket", "tle", "recon", "icbm", "gps"],
 };
 
 function classifyCategory(signals: NexusSignal[]): AlertCategory {
@@ -61,21 +63,14 @@ function classifyCategory(signals: NexusSignal[]): AlertCategory {
     .join(" ");
   let best: AlertCategory = "SURVEILLANCE";
   let bestScore = 0;
-  for (const [cat, terms] of Object.entries(CATEGORY_TERMS)) {
+  for (const [cat, terms] of Object.entries(CATEGORY_KEYWORDS)) {
     const score = terms.filter(t => text.includes(t)).length;
     if (score > bestScore) { bestScore = score; best = cat as AlertCategory; }
   }
   return best;
 }
 
-// ─── Semantic similarity ──────────────────────────────────────
-//
-// Two-tier strategy:
-//   1. Cosine similarity on pre-computed embeddings (server-side Voyage AI)
-//      Embeddings are attached to signal.payload.embedding as a plain number[]
-//      when the intelligence route processes them before broadcasting.
-//   2. Enhanced Jaccard fallback with synonym expansion and bigrams.
-//      Used when embeddings are not present.
+// ─── Semantic Similarity ─────────────────────────────────────────
 
 const SYNONYMS_ENGINE: Record<string, string[]> = {
   strike:      ["airstrike", "frappe", "bombing", "attack", "hit", "strike"],
@@ -101,7 +96,6 @@ function enhancedTokenSet(s: NexusSignal): Set<string> {
   ];
   const expanded = new Set<string>();
   tokens.forEach(tok => expandToken(tok).forEach(e => expanded.add(e)));
-  // Bigrams — capture "air strike", "red sea", etc.
   for (let i = 0; i < tokens.length - 1; i++) {
     expanded.add(`${tokens[i]}_${tokens[i + 1]}`);
   }
@@ -121,13 +115,11 @@ function cosineSim(a: number[], b: number[]): number {
 }
 
 function semSimilarity(a: NexusSignal, b: NexusSignal): number {
-  // Prefer cosine on pre-computed embeddings
   const embA = a.payload?.embedding as number[] | undefined;
   const embB = b.payload?.embedding as number[] | undefined;
   if (embA && embB && embA.length > 0 && embA.length === embB.length) {
     return cosineSim(embA, embB);
   }
-  // Fallback: enhanced Jaccard
   const ta    = enhancedTokenSet(a);
   const tb    = enhancedTokenSet(b);
   const inter = [...ta].filter(x => tb.has(x)).length;
@@ -135,12 +127,7 @@ function semSimilarity(a: NexusSignal, b: NexusSignal): number {
   return union === 0 ? 0 : inter / union;
 }
 
-// ─── Zone adjacency graph ─────────────────────────────────────
-//
-// Connected regions: activations in adjacent zones trigger a meta-event
-// score boost of +0.08 to the behavioral dimension.
-// Rationale: a simultaneous flare in Red Sea + Ormuz is a different
-// threat picture than each zone in isolation.
+// ─── Zone Adjacency Graph ────────────────────────────────────────
 
 const ZONE_ADJACENCY: Map<string, string[]> = new Map([
   ["Red Sea",           ["Strait of Hormuz", "Yemen", "Aden", "Gulf of Aden"]],
@@ -165,104 +152,94 @@ export function zoneAdjacencyBoost(zones: string[]): number {
   return Math.min(0.20, boost);
 }
 
-// ─── Zone registry ───────────────────────────────────────────
+// ─── Dynamic Zone Resolution ─────────────────────────────────────
 
-const ZONES = [
-  { name: "Tel Aviv",            country: "IL", lat: 32.08,  lng: 34.78,   r: 80  },
-  { name: "Gaza",                country: "PS", lat: 31.50,  lng: 34.45,   r: 50  },
-  { name: "Détroit de Taiwan",   country: "TW", lat: 24.00,  lng: 122.00,  r: 150 },
-  { name: "Détroit d'Ormuz",     country: "IR", lat: 26.50,  lng: 56.50,   r: 100 },
-  { name: "Mer Rouge",           country: "YE", lat: 15.00,  lng: 43.00,   r: 200 },
-  { name: "Moscou",              country: "RU", lat: 55.75,  lng: 37.62,   r: 100 },
-  { name: "Kiev",                country: "UA", lat: 50.45,  lng: 30.52,   r: 100 },
-  { name: "Pékin",               country: "CN", lat: 39.91,  lng: 116.39,  r: 120 },
-  { name: "Washington D.C.",     country: "US", lat: 38.90,  lng: -77.03,  r: 80  },
-  { name: "Téhéran",             country: "IR", lat: 35.69,  lng: 51.39,   r: 100 },
-  { name: "Bagdad",              country: "IQ", lat: 33.34,  lng: 44.40,   r: 80  },
-  { name: "Beyrouth",            country: "LB", lat: 33.89,  lng: 35.50,   r: 60  },
-  { name: "Damas",               country: "SY", lat: 33.51,  lng: 36.29,   r: 80  },
-  { name: "Pyongyang",           country: "KP", lat: 39.01,  lng: 125.73,  r: 80  },
-  { name: "Sahel Mali",          country: "ML", lat: 17.57,  lng: -3.99,   r: 300 },
-  { name: "Myanmar",             country: "MM", lat: 19.74,  lng: 96.07,   r: 200 },
-  { name: "Détroit de Malacca",  country: "SG", lat:  1.30,  lng: 103.80,  r: 150 },
-  { name: "Canal de Suez",       country: "EG", lat: 29.97,  lng: 32.54,   r: 80  },
-  { name: "Golfe Persique",      country: "QA", lat: 26.00,  lng: 51.00,   r: 250 },
-  { name: "Caucase",             country: "GE", lat: 41.70,  lng: 44.80,   r: 200 },
-  { name: "Pentagon",            country: "US", lat: 38.87,  lng: -77.06,  r: 20  },
-  { name: "Crimée",              country: "UA", lat: 45.00,  lng: 34.00,   r: 120 },
-  { name: "Haïfa",               country: "IL", lat: 32.82,  lng: 35.00,   r: 60  },
-  { name: "Zaporizhzhia",        country: "UA", lat: 47.83,  lng: 35.16,   r: 80  },
-  { name: "Donbass",             country: "UA", lat: 48.00,  lng: 38.50,   r: 150 },
-  { name: "Khartoum",            country: "SD", lat: 15.55,  lng: 32.53,   r: 100 },
-  { name: "Kaboul",              country: "AF", lat: 34.52,  lng: 69.18,   r: 80  },
-];
-
-function resolveZone(lat: number, lng: number): { name: string; country: string } {
-  let best = { name: "Zone Inconnue", country: "XX" };
-  let bestDist = Infinity;
-  for (const z of ZONES) {
-    const d = haversineKm(lat, lng, z.lat, z.lng);
-    if (d < z.r && d < bestDist) { bestDist = d; best = { name: z.name, country: z.country }; }
+async function resolveZone(lat: number, lng: number): Promise<ZoneInfo> {
+  const detected = dynamicZoneEngine.findNearestZone(lat, lng);
+  if (detected) {
+    const baseline = await dynamicBaselineEngine.computeBaseline(detected.centroid.lat > 0 ? "XX" : "XX");
+    return {
+      name: detected.name,
+      country: detected.centroid.lat > 35 ? "EU" : detected.centroid.lat < 10 ? "AF" : "XX",
+      lat: detected.centroid.lat,
+      lng: detected.centroid.lng,
+      radiusKm: detected.radiusKm,
+      baseline: baseline.baselineScore,
+      trend: baseline.trend,
+    };
   }
-  return best;
+
+  // Fallback: reverse geocode from coordinates
+  const country = inferCountryFromCoords(lat, lng);
+  const zoneName = generateZoneName(lat, lng);
+  return { name: zoneName, country, lat, lng, radiusKm: 100 };
 }
 
-// ─── Historical pattern matching ─────────────────────────────
-// Similarity is computed deterministically from category × zone × source diversity.
-
-const HISTORICAL_PATTERNS: HistoricalMatch[] = [
-  { name: "Frappes israéliennes sur Iran — avril 2024",   date: "2024-04-19", similarity: 0, outcome: "Frappe confirmée, désescalade rapide après 48h",                  falsePositiveRate: 0.05 },
-  { name: "Attaque Hamas — 7 octobre 2023",               date: "2023-10-07", similarity: 0, outcome: "Escalade majeure — conflit Gaza prolongé (>6 mois)",               falsePositiveRate: 0.02 },
-  { name: "Invasion Ukraine — 24 février 2022",           date: "2022-02-24", similarity: 0, outcome: "Invasion totale — conflit en cours (>800 jours)",                  falsePositiveRate: 0.03 },
-  { name: "Assassinat Soleimani — janvier 2020",          date: "2020-01-03", similarity: 0, outcome: "Riposte missile IRGC — désescalade sous 72h",                      falsePositiveRate: 0.08 },
-  { name: "Attaque drones Aramco — septembre 2019",       date: "2019-09-14", similarity: 0, outcome: "Attribution Yemen/Iran — impact pétrole +15%",                     falsePositiveRate: 0.10 },
-  { name: "Incident Détroit d'Ormuz — juillet 2019",      date: "2019-07-19", similarity: 0, outcome: "Saisie tanker britannique — tensions US-Iran",                     falsePositiveRate: 0.12 },
-  { name: "Test nucléaire RPDC — septembre 2017",         date: "2017-09-03", similarity: 0, outcome: "Condamnation ONU — sanctions renforcées",                          falsePositiveRate: 0.04 },
-  { name: "Incident Mer de Chine Sud — 2016",             date: "2016-07-12", similarity: 0, outcome: "Ruling CPA ignoré — présence militaire maintenue",                 falsePositiveRate: 0.15 },
-  { name: "Coup d'état Myanmar — février 2021",           date: "2021-02-01", similarity: 0, outcome: "Junte au pouvoir — guerre civile en cours",                        falsePositiveRate: 0.06 },
-  { name: "Attaques Houthi Mer Rouge — décembre 2023",    date: "2023-12-15", similarity: 0, outcome: "Perturbation shipping mondial — Opération Prosperity Guardian",     falsePositiveRate: 0.07 },
-  { name: "Front Hezbollah-Israël nord — octobre 2023",   date: "2023-10-08", similarity: 0, outcome: "Front nord ouvert — frappes réciproques quotidiennes",             falsePositiveRate: 0.09 },
-  { name: "Coupure internet Iran — novembre 2019",        date: "2019-11-16", similarity: 0, outcome: "Répression manifestations — 1500 morts confirmés",                 falsePositiveRate: 0.08 },
-];
-
-function matchHistorical(signals: NexusSignal[], category: AlertCategory, zone: string): HistoricalMatch[] {
-  const sources = new Set(signals.map(s => s.source));
-  return HISTORICAL_PATTERNS.map(p => {
-    let sim = 0;
-    if (category === "MILITAIRE"      && (p.name.includes("Frappe") || p.name.includes("Attaque") || p.name.includes("drones"))) sim += 0.30;
-    if (category === "MARITIME"       && (p.name.includes("Détroit") || p.name.includes("tanker")))                              sim += 0.35;
-    if (category === "CONFLIT_ARMÉ"   && (p.name.includes("Hamas") || p.name.includes("Ukraine") || p.name.includes("Houthi"))) sim += 0.40;
-    if (category === "ABSENCE_SIGNAL" && p.name.includes("internet"))                                                            sim += 0.35;
-    if (category === "TERRORISME"     && p.name.includes("Attaque"))                                                             sim += 0.30;
-    if (category === "ESPACE"         && p.name.includes("nucléaire"))                                                           sim += 0.35;
-    if (zone.includes("Gaza")         && p.name.includes("Hamas"))         sim += 0.40;
-    if (zone.includes("Kiev")         && p.name.includes("Ukraine"))       sim += 0.40;
-    if (zone.includes("Crimée")       && p.name.includes("Ukraine"))       sim += 0.35;
-    if (zone.includes("Donbass")      && p.name.includes("Ukraine"))       sim += 0.40;
-    if (zone.includes("Ormuz")        && p.name.includes("Ormuz"))         sim += 0.45;
-    if (zone.includes("Mer Rouge")    && p.name.includes("Houthi"))        sim += 0.45;
-    if (zone.includes("Taiwan")       && p.name.includes("Chine"))         sim += 0.35;
-    if (zone.includes("Pyongyang")    && p.name.includes("RPDC"))          sim += 0.45;
-    if (zone.includes("Téhéran")      && (p.name.includes("Iran") || p.name.includes("Soleimani"))) sim += 0.40;
-    if (zone.includes("Haïfa")        && p.name.includes("Hezbollah"))     sim += 0.40;
-    if (zone.includes("Tel Aviv")     && p.name.includes("avril 2024"))    sim += 0.35;
-    if (sources.has("gdelt"))     sim += 0.04;
-    if (sources.has("acled"))     sim += 0.06;
-    if (sources.has("satellite")) sim += 0.05;
-    if (sources.has("usgs"))      sim += 0.03;
-    if (sources.size >= 4)        sim += 0.08;
-    if (sources.size >= 6)        sim += 0.05;
-    return { ...p, similarity: Math.min(0.98, sim) };
-  })
-    .filter(p => p.similarity > 0.20)
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 4);
+function inferCountryFromCoords(lat: number, lng: number): string {
+  // Simple bounding box inference
+  if (lat >= 29 && lat <= 34 && lng >= 34 && lng <= 36) return "IL";
+  if (lat >= 31 && lat <= 32 && lng >= 34 && lng <= 35) return "PS";
+  if (lat >= 44 && lat <= 53 && lng >= 22 && lng <= 41) return "UA";
+  if (lat >= 41 && lat <= 82 && lng >= 19 && lng <= 180) return "RU";
+  if (lat >= 25 && lat <= 46 && lng >= -125 && lng <= -66) return "US";
+  if (lat >= 32 && lng >= 44 && lng <= 64) return "IR";
+  if (lat >= 21 && lat <= 42 && lng >= 35 && lng <= 46) return "SY";
+  if (lat >= 33 && lat <= 38 && lng >= 35 && lng <= 37) return "LB";
+  if (lat >= 12 && lat <= 19 && lng >= 42 && lng <= 54) return "YE";
+  if (lat >= 18 && lat <= 55 && lng >= 73 && lng <= 135) return "CN";
+  if (lat >= 21 && lat <= 26 && lng >= 119 && lng <= 123) return "TW";
+  if (lat >= 37 && lat <= 43 && lng >= 124 && lng <= 131) return "KP";
+  return "XX";
 }
 
-// ─── DBSCAN spatial+temporal clustering ──────────────────────
-// eps    = maximum inter-signal distance (km)
-// minPts = minimum cluster cardinality
-// Temporal gate: signals >120 min apart are never merged even if co-located.
+function generateZoneName(lat: number, lng: number): string {
+  return `Zone ${lat.toFixed(2)}°, ${lng.toFixed(2)}°`;
+}
+
+// ─── Pattern Matching (dynamic via patternEngine) ───────────────
+
+async function matchHistorical(
+  signals: NexusSignal[],
+  category: AlertCategory,
+  zone: string
+): Promise<HistoricalMatch[]> {
+  try {
+    const signature = {
+      spatial: {
+        lat: signals[0]?.lat ?? 0,
+        lng: signals[0]?.lng ?? 0,
+        radiusKm: 100,
+      },
+      temporal: {
+        start: new Date(),
+        peak: null,
+      },
+      categorical: {
+        eventTypes: [category],
+        actors: [...new Set(signals.map(s => s.source))],
+        fatalitiesRange: [0, 100] as [number, number],
+      },
+      intensity: {
+        eventCount: signals.length,
+        sourceDiversity: new Set(signals.map(s => s.source)).size,
+        mediaVolume: signals.length * 5,
+      },
+    };
+
+    const matches = await patternEngine.findSimilarPatterns(signature, 5);
+    return matches.map(m => ({
+      name: m.historicalEvent.zoneName,
+      date: m.historicalEvent.date.toISOString().slice(0, 10),
+      similarity: m.similarity,
+      outcome: m.predictedOutcome,
+      falsePositiveRate: 1 - m.confidence,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ─── DBSCAN Spatial+Temporal Clustering ──────────────────────────
 
 function dbscan(signals: NexusSignal[], eps: number, minPts: number): NexusSignal[][] {
   const n       = signals.length;
@@ -315,20 +292,12 @@ function dbscan(signals: NexusSignal[], eps: number, minPts: number): NexusSigna
   return clusters.filter(c => c.length >= minPts);
 }
 
-// ─── 6-dimension correlation scoring ─────────────────────────
-// Weights calibrated on ACLED 2018-2024 (n=12,400, precision 89.3%, recall 84.1%).
-// Reference: Herz & Mueller, "Multi-source fusion for conflict early warning",
-// AAAI Workshop on AI for Social Good, 2023.
-//
-//   spatial      0.18  proximity of signal origins
-//   temporal     0.16  recency and co-occurrence window
-//   semantic     0.18  textual coherence across sources
-//   behavioral   0.14  burst / coordination detection
-//   historical   0.14  evidence density proxy
-//   sourceDiv    0.12  independent stream count (saturates at 6)
-//   weightedConf 0.08  reliability-weighted raw confidence
+// ─── 6-Dimension Correlation Scoring ─────────────────────────────
 
-function correlate(signals: NexusSignal[]): CorrelationScore {
+async function correlate(
+  signals: NexusSignal[],
+  zoneInfo: ZoneInfo
+): Promise<CorrelationScore> {
   if (signals.length < 2) {
     return { spatial: 0, temporal: 0, semantic: 0, behavioral: 0, historical: 0, sourceDiv: 0, total: 0 };
   }
@@ -358,7 +327,9 @@ function correlate(signals: NexusSignal[]): CorrelationScore {
   const maxFromOneSource = Math.max(...Object.values(sourceCounts));
   const behavioral = Math.min(0.90, 0.10 + Math.max(0, maxFromOneSource - 3) * 0.16);
 
-  const historical = Math.min(0.95, 0.20 + signals.length * 0.075);
+  // Use dynamic baseline for historical dimension
+  const baseline = zoneInfo.baseline ?? 0.3;
+  const historical = Math.min(0.95, baseline + signals.length * 0.05);
 
   const uniqueSources = new Set(signals.map(s => s.source)).size;
   const sourceDiv     = Math.min(1.0, uniqueSources / 6);
@@ -381,19 +352,26 @@ function correlate(signals: NexusSignal[]): CorrelationScore {
   return { spatial, temporal, semantic, behavioral, historical, sourceDiv, total };
 }
 
-// ─── Engine ───────────────────────────────────────────────────
+// ─── Engine ──────────────────────────────────────────────────────
 
 type EngineListener = (events: NexusEvent[]) => void;
 
 export class NexusEngine {
   private signals:   NexusSignal[]              = [];
-  private events  = new Map<string, NexusEvent>();
-  private tasks   = new Map<string, AgentTask>();
+  private events   = new Map<string, NexusEvent>();
+  private tasks    = new Map<string, AgentTask>();
   private listeners: EngineListener[]           = [];
+  private initialized = false;
 
   private readonly MAX_SIGNALS = 5_000;
   private readonly CLUSTER_EPS = 400;
   private readonly MIN_PTS     = 2;
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    await patternEngine.initialize();
+    this.initialized = true;
+  }
 
   onEvents(cb: EngineListener): () => void {
     this.listeners.push(cb);
@@ -414,9 +392,6 @@ export class NexusEngine {
     this.process();
   }
 
-  // Coerce all timestamp fields to Date objects and clamp confidence to [0, 1].
-  // Also called defensively inside process() to catch any signal that bypassed
-  // the public ingest paths (e.g. direct state injection in tests).
   private normalize(s: NexusSignal): NexusSignal {
     return {
       ...s,
@@ -429,63 +404,40 @@ export class NexusEngine {
   private process(): void {
     const cutoff = Date.now() - 6 * 3_600_000;
 
-    // Normalize the full buffer every cycle — defensive safety net so stale
-    // string-dated signals from API bridge calls never cause getTime() crashes.
     const active = this.signals
       .map(s => this.normalize(s))
       .filter(s => s.eventTime.getTime() > cutoff);
 
     const clusters = dbscan(active, this.CLUSTER_EPS, this.MIN_PTS);
 
+    // Process clusters asynchronously
+    this.processClusters(clusters).catch(() => {});
+  }
+
+  private async processClusters(clusters: NexusSignal[][]): Promise<void> {
     for (const cluster of clusters) {
-      const score    = correlate(cluster);
-      if (score.total < 0.15) continue;
+      const score    = await this.scoreCluster(cluster);
+      if (score.correlation.total < 0.15) continue;
 
-      const c        = centroid(cluster);
-      const zone     = resolveZone(c.lat, c.lng);
-      const category = classifyCategory(cluster);
+      const level   = scoreToLevel(score.correlation.total);
+      const matches = await matchHistorical(cluster, score.category, score.zoneInfo.name);
 
-      // CUSUM change-point detection — Murphy et al. Cambridge 2024 (AUC 93.7%)
-      // If a statistical breakpoint is detected for this zone, boost the
-      // behavioral dimension by +0.10 (capped at 0.90) and recompute total.
-      const cusum = detectAnomaly(zone.name, "signal_count", cluster.length, 2.0);
-      const behavioralBoosted = cusum.breakPoint
-        ? Math.min(0.90, score.behavioral + 0.10)
-        : score.behavioral;
-      const totalBoosted =
-        score.spatial    * 0.18 +
-        score.temporal   * 0.16 +
-        score.semantic   * 0.18 +
-        behavioralBoosted * 0.14 +
-        score.historical * 0.14 +
-        score.sourceDiv  * 0.12 +
-        score.total      * 0.08; // weightedConf proxy
-      const finalScore: CorrelationScore = {
-        ...score,
-        behavioral: behavioralBoosted,
-        total:      totalBoosted,
-      };
-
-      const level   = scoreToLevel(finalScore.total);
-      const matches = matchHistorical(cluster, category, zone.name);
-
-      // 0.1-degree grid cell (~11 km). Identical geographic events are upserted.
-      const id = `nexus-${zone.country}-${Math.round(c.lat * 10)}-${Math.round(c.lng * 10)}`;
+      const id = `nexus-${score.zoneInfo.country}-${Math.round(score.centroid.lat * 10)}-${Math.round(score.centroid.lng * 10)}`;
 
       const existing = this.events.get(id);
       const event: NexusEvent = {
         id,
         level,
-        category,
-        lat:               c.lat,
-        lng:               c.lng,
+        category: score.category,
+        lat:               score.centroid.lat,
+        lng:               score.centroid.lng,
         radiusKm:          Math.max(50, this.CLUSTER_EPS / cluster.length),
-        zone:              zone.name,
-        country:           zone.country,
+        zone:              score.zoneInfo.name,
+        country:           score.zoneInfo.country,
         signals:           cluster,
-        correlation:       finalScore,
-        explanation:       this.buildExplanation(cluster, finalScore, zone.name),
-        aiSummary:         this.buildAiSummary(cluster, level, zone.name, category),
+        correlation:       score.correlation,
+        explanation:       this.buildExplanation(cluster, score.correlation, score.zoneInfo.name),
+        aiSummary:         this.buildAiSummary(cluster, level, score.zoneInfo.name, score.category),
         historicalMatches: matches,
         detectedAt:        existing?.detectedAt ?? new Date(),
         updatedAt:         new Date(),
@@ -500,6 +452,48 @@ export class NexusEngine {
     }
 
     this.emit();
+  }
+
+  private async scoreCluster(cluster: NexusSignal[]): Promise<{
+    correlation: CorrelationScore;
+    category: AlertCategory;
+    zoneInfo: ZoneInfo;
+    centroid: { lat: number; lng: number };
+  }> {
+    const c = centroid(cluster);
+    const zoneInfo = await resolveZone(c.lat, c.lng);
+    const correlation = await correlate(cluster, zoneInfo);
+    const category = classifyCategory(cluster);
+
+    // Apply CUSUM detection
+    const cusum = detectAnomaly(zoneInfo.name, "signal_count", cluster.length, 2.0);
+    if (cusum.breakPoint) {
+      correlation.behavioral = Math.min(0.90, correlation.behavioral + 0.10);
+      correlation.total =
+        correlation.spatial      * 0.18 +
+        correlation.temporal     * 0.16 +
+        correlation.semantic     * 0.18 +
+        correlation.behavioral   * 0.14 +
+        correlation.historical   * 0.14 +
+        correlation.sourceDiv    * 0.12 +
+        correlation.total        * 0.08;
+    }
+
+    // Apply credibility adjustments for Telegram sources
+    for (const signal of cluster) {
+      if (signal.source === "social_telegram") {
+        const handle = signal.payload?.channelHandle as string | undefined;
+        if (handle) {
+          const meta = getChannelMetadata(handle);
+          if (meta) {
+            const penalty = computeBiasPenalty(meta.documentedWarnings);
+            signal.confidence = Math.max(0.1, signal.confidence * (1 - penalty));
+          }
+        }
+      }
+    }
+
+    return { correlation, category, zoneInfo, centroid: c };
   }
 
   private buildExplanation(signals: NexusSignal[], score: CorrelationScore, zone: string): string {
@@ -538,7 +532,6 @@ export class NexusEngine {
   private triggerSwarm(event: NexusEvent): void {
     const n         = event.signals.length;
     const archiveTs = event.detectedAt.getTime();
-    // ~5 associated media items per signal (empirical OSINT collection ratio)
     const mediaCount  = n * 5;
     const archiveKB   = (n * 0.38).toFixed(1);
 
@@ -589,7 +582,7 @@ export class NexusEngine {
 
   getSourceHealth(): SourceHealth[] {
     const now      = Date.now();
-    const windowH  = 6; // hours
+    const windowH  = 6;
 
     const stats = new Map<string, { count: number; lastTs: number; totalAgeMs: number }>();
     for (const s of this.signals) {
