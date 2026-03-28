@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/banner.png" alt="NEXUS" width="100%" />
-</p>
-
 <h1 align="center">NEXUS</h1>
 <p align="center">Real-time geospatial OSINT engine.<br/>35+ live sources. 92 Telegram channels. The globe is silent until it matters.</p>
 

@@ -12,7 +12,6 @@ const nextConfig: NextConfig = {
 
   // 2. On ignore les erreurs bloquantes pour le déploiement rapide
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
   
   env: {
     CESIUM_BASE_URL: "/cesium",

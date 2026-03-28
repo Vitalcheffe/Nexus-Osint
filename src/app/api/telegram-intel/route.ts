@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       description: enriched.text || enriched.translated_text || "",
       lat: enriched.lat || 25.0,
       lng: enriched.lng || 45.0,
+      radiusKm: enriched.radius_km || 50,
       eventTime: new Date(enriched.timestamp || Date.now()),
       ingestTime: new Date(),
       confidence: enriched.confidence_score || 0.5,

@@ -249,7 +249,10 @@ export class PatternEngine {
 
     for (const event of this.historicalEvents) {
       const eventEmbedding = await this.getEventEmbedding(event);
-      const similarity = cosineSimilarity(signatureEmbedding, eventEmbedding);
+      const similarity = cosineSimilarity(
+        signatureEmbedding instanceof Float32Array ? signatureEmbedding : new Float32Array(signatureEmbedding),
+        eventEmbedding instanceof Float32Array ? eventEmbedding : new Float32Array(eventEmbedding),
+      );
 
       // Identifier les facteurs de correspondance
       const factors = this.identifyMatchingFactors(signature, event);

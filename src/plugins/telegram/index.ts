@@ -54,10 +54,10 @@ function getCoords(regions: string[]): [number, number] {
 function generateEntities(): TelegramSignalEntity[] {
   const channels = NEXUS_CHANNELS.filter(ch => ch.credibilityScore >= 60);
   return channels.map(ch => {
-    const coords = getCoords(ch.region);
+    const coords = getCoords(ch.regions);
     // Display channel's real documented specialties — not invented messages
     const specialtyText = `${ch.handle} · cred ${ch.credibilityScore} · ${ch.specialties.slice(0, 2).join(", ")}`;
-    const zone = ch.region[0] ?? "Global";
+    const zone = ch.regions[0] ?? "Global";
 
     return {
       id: `tg-${ch.handle}`,
@@ -66,7 +66,7 @@ function generateEntities(): TelegramSignalEntity[] {
       lat: coords[0],
       lng: coords[1],
       zone,
-      country: ch.region[0] ?? "XX",
+      country: ch.regions[0] ?? "XX",
       credibilityScore: ch.credibilityScore,
       bias: ch.bias,
       messageCount: 0, // 0 = no live feed. Live counts come from /api/telegram-intel

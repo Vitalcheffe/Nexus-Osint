@@ -19,7 +19,7 @@ import { useStore } from "@/core/state/store";
 import type { NexusAlert, NexusSignalUI } from "@/core/state/nexusSlice";
 import { NEXUS_CHANNELS } from "@/nexus/telegram-intel";
 import { NEXUS_CHANNELS_V4 } from "@/nexus/telegram-channels-v4";
-import { predictViEWS, type ViEWSPrediction } from "@/nexus/science-engine";
+import { predictViEWSSync, type ViEWSPrediction } from "@/nexus/science-engine";
 
 // ─── Constants ────────────────────────────────────────────────
 
@@ -628,7 +628,7 @@ function SignalCard({ signal, index }: {
 // Reference: viewsforecasting.org
 
 function ViEWSTab({ alert }: { alert: NexusAlert }) {
-  const pred: ViEWSPrediction = predictViEWS(
+  const pred: ViEWSPrediction = predictViEWSSync(
     alert.country,
     alert.signals.length,
     alert.confidence / 100,
