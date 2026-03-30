@@ -19,31 +19,18 @@ const nextConfig: NextConfig = {
   
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      if (process.env.NODE_ENV === "production" || !isServer) {
-        if (process.env.NODE_ENV === "production") {
-          config.plugins?.push(
-            new CopyPlugin({
-              patterns: [
-                {
-                  from: path.join(cesiumSource, "Workers"),
-                  to: path.resolve(__dirname, "public/cesium/Workers"),
-                },
-                {
-                  from: path.join(cesiumSource, "ThirdParty"),
-                  to: path.resolve(__dirname, "public/cesium/ThirdParty"),
-                },
-                {
-                  from: path.join(cesiumSource, "Assets"),
-                  to: path.resolve(__dirname, "public/cesium/Assets"),
-                },
-                {
-                  from: path.join(cesiumSource, "Widgets"),
-                  to: path.resolve(__dirname, "public/cesium/Widgets"),
-                },
-              ],
-            })
-          );
-        }
+      // Copy Cesium assets to public/ in production builds
+      if (process.env.NODE_ENV === "production") {
+        config.plugins?.push(
+          new CopyPlugin({
+            patterns: [
+              { from: path.join(cesiumSource, "Workers"), to: path.resolve(__dirname, "public/cesium/Workers") },
+              { from: path.join(cesiumSource, "ThirdParty"), to: path.resolve(__dirname, "public/cesium/ThirdParty") },
+              { from: path.join(cesiumSource, "Assets"), to: path.resolve(__dirname, "public/cesium/Assets") },
+              { from: path.join(cesiumSource, "Widgets"), to: path.resolve(__dirname, "public/cesium/Widgets") },
+            ],
+          })
+        );
       }
 
       config.plugins?.push(
